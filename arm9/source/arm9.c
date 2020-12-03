@@ -156,7 +156,7 @@ int restoreNAND(nocash_footer_t *footer){
 	printf("measures taken here, writing to\n");
 	printf("NAND is very dangerous and most\n");
 	printf("issues are not helped by a NAND\n");
-	printf("NAND backup restore. Only use\n");
+	printf("backup restore. Only continue\n");
 	printf("if you know what you're doing.\n\n");
 	printf("Press X + Y to begin restore\n");
 	printf("Press B to cancel\n");
