@@ -1,91 +1,36 @@
-#include <stdio.h>
 #include <string.h>
-#include <malloc.h>
 #include <stdint.h>
+#include "u128_math.h"
+#include "f_xy.h"
 
-//#define DEBUG
+const uint8_t DSi_KEY_MAGIC[16] = {
+	0x79, 0x3e, 0x4f, 0x1a, 0x5f, 0x0f, 0x68, 0x2a,
+	0x58, 0x02, 0x59, 0x29, 0x4e, 0xfb, 0xfe, 0xff
+};
+const uint8_t DSi_NAND_KEY_Y[16] = {
+	0x76, 0xdc, 0xb9, 0x0a, 0xd3, 0xc4, 0x4d, 0xbd,
+	0x1d, 0xdd, 0x2d, 0x20, 0x05, 0x00, 0xa0, 0xe1
+};
 
+/************************ Functions *******************************************/
 
-void n128_lrot(uint64_t *num, uint32_t shift)
+void F_XY(uint8_t *key, const uint8_t *key_x, const uint8_t *key_y)
 {
-	uint64_t tmp[2];
+	uint8_t key_xy[16];
 
-	tmp[0] = num[0]<<shift;
-	tmp[1] = num[1]<<shift;
-	tmp[0] |= (num[1]>>(64-shift));
-	tmp[1] |= (num[0]>>(64-shift));
+	for (int i=0; i<16; i++)
+		key_xy[i] = key_x[i] ^ key_y[i];
 
-	num[0] = tmp[0];
-	num[1] = tmp[1];
-}
-void n128_rrot(uint64_t *num, uint32_t shift)
-{
-	uint64_t tmp[2];
+	memcpy(key, DSi_KEY_MAGIC, sizeof(DSi_KEY_MAGIC));
 
-	tmp[0] = num[0]>>shift;
-	tmp[1] = num[1]>>shift;
-	tmp[0] |= (num[1]<<(64-shift));
-	tmp[1] |= (num[0]<<(64-shift));
-
-	num[0] = tmp[0];
-	num[1] = tmp[1];
-}
-
-void n128_add(uint64_t *a, uint64_t *b)
-{
-	uint64_t *a64 = a;
-	uint64_t *b64 = b;
-	uint64_t tmp = (a64[0]>>1)+(b64[0]>>1) + (a64[0] & b64[0] & 1);
-	 
-	tmp = tmp >> 63;
-        a64[0] = a64[0] + b64[0];
-        a64[1] = a64[1] + b64[1] + tmp;
-}
-
-void n128_sub(uint64_t *a, uint64_t *b)
-{
-	uint64_t *a64 = a;
-	uint64_t *b64 = b;
-	uint64_t tmp = (a64[0]>>1)-(b64[0]>>1) - ((a64[0]>>63) & (b64[0]>>63) & 1);
-        
-	tmp = tmp >> 63;
-        a64[0] = a64[0] - b64[0];
-        a64[1] = a64[1] - b64[1] - tmp;
-}
-
-void F_XY(uint32_t *key, uint32_t *key_x, uint32_t *key_y)
-{
-	int i;
-	unsigned char key_xy[16];
-
-	memset(key_xy, 0, 16);
-	memset(key, 0, 16);
-	for(i=0; i<16; i++)key_xy[i] = ((unsigned char*)key_x)[i] ^ ((unsigned char*)key_y)[i];
-
-	key[0] = 0x1a4f3e79;
-	key[1] = 0x2a680f5f;
-	key[2] = 0x29590258;
-	key[3] = 0xfffefb4e;
-
-	n128_add((uint64_t*)key, (uint64_t*)key_xy);
-	n128_lrot((uint64_t*)key, 42);
+	u128_add(key, key_xy);
+	u128_lrot(key, 42);
 }
 
 //F_XY_reverse does the reverse of F(X^Y): takes (normal)key, and does F in reverse to generate the original X^Y key_xy.
-void F_XY_reverse(uint32_t *key, uint32_t *key_xy)
+void F_XY_reverse(const uint8_t *key, uint8_t *key_xy)
 {
-	uint32_t tmpkey[4];
-	memset(key_xy, 0, 16);
-	memset(tmpkey, 0, 16);
-	memcpy(tmpkey, key, 16);
-
-	key_xy[0] = 0x1a4f3e79;
-	key_xy[1] = 0x2a680f5f;
-	key_xy[2] = 0x29590258;
-	key_xy[3] = 0xfffefb4e;
-
-	n128_rrot((uint64_t*)tmpkey, 42);
-	n128_sub((uint64_t*)tmpkey, (uint64_t*)key_xy);
-	memcpy(key_xy, tmpkey, 16);
+	memcpy(key_xy, key, 16);
+	u128_rrot(key_xy, 42);
+	u128_sub(key_xy, DSi_KEY_MAGIC);
 }
-

@@ -46,7 +46,7 @@ void dsi_set_ctr( dsi_context* ctx,
 
 void dsi_init_ctr( dsi_context* ctx,
 				   unsigned char key[16],
-				   unsigned char ctr[12] )
+				   unsigned char ctr[16] )
 {
 	dsi_set_key(ctx, key);
 	dsi_set_ctr(ctx, ctr);

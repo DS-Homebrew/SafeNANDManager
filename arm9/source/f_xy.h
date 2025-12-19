@@ -5,8 +5,17 @@
 extern "C" {
 #endif
 
-void F_XY(uint32_t *key, uint32_t *key_x, uint32_t *key_y);
-void F_XY_reverse(uint32_t *key, uint32_t *key_xy);
+#include <stdint.h>
+
+/************************ Constants / Defines *********************************/
+
+extern const uint8_t DSi_KEY_MAGIC[16];
+extern const uint8_t DSi_NAND_KEY_Y[16];
+
+/************************ Function Protoypes **********************************/
+
+void F_XY(uint8_t *key, const uint8_t *key_x, const uint8_t *key_y);
+void F_XY_reverse(const uint8_t *key, uint8_t *key_xy);
 
 #ifdef __cplusplus
 }

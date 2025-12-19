@@ -3,13 +3,17 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
-#include <nds/arm9/nand.h>
 #include "f_xy.h"
 #include "dsi.h"
 
 #define CHUNKSIZE 0x80000
 u8 *workbuffer;
 u32 done=0;
+
+static struct {
+	u8 consoleID[8];
+	u8 CID[16];
+} consoleIdAndCid;
 
 typedef struct nocash_footer {
 	char footerID[16];
@@ -30,49 +34,10 @@ u32 getMBremaining(){
 }
 
 void death(char *message){
-	iprintf("%s\n", message);
-	iprintf("Hold Power to exit\n");
+	printf("%s\n", message);
+	printf("Hold Power to exit\n");
 	free(workbuffer);
 	while(1)swiWaitForVBlank();
-}
-
-void getCID(u8 *CID){
-	memcpy(CID,(u8*)0x02FFD7BC,16); //arm9 location
-}
-
-void getConsoleID(u8 *consoleID){
-	u8 *fifo=(u8*)0x02300000; //shared mem address that has our computed key3 stuff
-	u8 key[16]; //key3 normalkey - keyslot 3 is used for DSi/twln NAND crypto
-	u8 key_xy[16]; //key3_y ^ key3_x
-	u8 key_x[16];////key3_x - contains a DSi console id (which just happens to be the LFCS on 3ds)
-	u8 key_y[16] = {0x76, 0xDC, 0xB9, 0x0A, 0xD3, 0xC4, 0x4D, 0xBD, 0x1D, 0xDD, 0x2D, 0x20, 0x05, 0x00, 0xA0, 0xE1}; //key3_y NAND constant
-	
-	while(1){
-		if(fifoCheckValue32(FIFO_USER_01)){  //checking to see when that plucky little arm7 has finished its consoleID magic
-			break;
-		}
-		swiWaitForVBlank();
-	}
-	
-	u8 empty_buff[8] = {0};
-
-	memcpy(key, fifo, 16);  //receive the goods from arm7
-
-	if(memcmp(key + 8, empty_buff, 8) == 0)
-	{
-		//we got the consoleid directly or nothing at all, don't treat this as key3 output
-		memcpy(consoleID, key, 8);
-		return;
-	}
-
-	F_XY_reverse((uint32_t*)key, (uint32_t*)key_xy); //work backwards from the normalkey to get key_x that has the consoleID
-	
-	for(int i=0;i<16;i++){
-		key_x[i] = key_xy[i] ^ key_y[i];             //''
-	}
-	
-	memcpy(&consoleID[0], &key_x[0], 4);             
-	memcpy(&consoleID[4], &key_x[0xC], 4);
 }
 
 int dumpNAND(nocash_footer_t *footer){
@@ -86,7 +51,7 @@ int dumpNAND(nocash_footer_t *footer){
 	bool batteryMsgShown=false;
 	while(getBatteryLevel() < 0x4){
 		if(!batteryMsgShown) {
-			iprintf("Battery low: plug in to proceed\r"); //user can charge to 2 bars or more OR just plug in the charger. charging state adds +0x80 to battery level. low 4 bits are the battery charge level.
+			printf("Battery low: plug in to proceed\r"); //user can charge to 2 bars or more OR just plug in the charger. charging state adds +0x80 to battery level. low 4 bits are the battery charge level.
 			batteryMsgShown=true;
 		}
 	}
@@ -101,15 +66,15 @@ int dumpNAND(nocash_footer_t *footer){
 	FILE *f = fopen("nand.bin", "wb");
 	if(!f) death("Could not open nand file");
 	
-	iprintf("Dumping...\n");
-	iprintf("Hold A & B to cancel\n");
-	iprintf("\x1b[16;0H");
-	iprintf("Progress: 0%%\n");
+	printf("Dumping...\n");
+	printf("Hold A & B to cancel\n");
+	printf("\x1b[16;0H");
+	printf("Progress: 0%%\n");
 	swiSHA1Init(&ctx);
 
 	for(int i=0;i<rwTotal;i+=CHUNKSIZE){           //read from nand, dump to sd
 		if(nand_ReadSectors(i / 0x200, CHUNKSIZE / 0x200, workbuffer) == false){
-			iprintf("Nand read error\nOffset: %08X\nAborting...", (int)i);
+			printf("Nand read error\nOffset: %08X\nAborting...", (int)i);
 			fclose(f);
 			unlink(filename);
 			fail=1;
@@ -117,18 +82,18 @@ int dumpNAND(nocash_footer_t *footer){
 		}
 		swiSHA1Update(&ctx, workbuffer, CHUNKSIZE);
 		if(fwrite(workbuffer, 1, CHUNKSIZE, f) < CHUNKSIZE){
-			iprintf("Sdmc write error\nOffset: %08X\nAborting...", (int)i);
+			printf("Sdmc write error\nOffset: %08X\nAborting...", (int)i);
 			fclose(f);
 			unlink(filename);
 			fail=1;
 			break;
 		}
-		iprintf("\x1b[16;0H");
-		iprintf("Progress: %lu%%\n", (i+CHUNKSIZE)/(rwTotal/100));
+		printf("\x1b[16;0H");
+		printf("Progress: %lu%%\n", (long unsigned)((i+CHUNKSIZE)/(rwTotal/100)));
 		scanKeys();
 		int keys = keysHeld();
 		if(keys & KEY_A && keys & KEY_B){
-			iprintf("\nCanceling...");
+			printf("\nCanceling...");
 			fclose(f);
 			unlink(filename);
 			fail=1;
@@ -152,7 +117,7 @@ int dumpNAND(nocash_footer_t *footer){
 		fclose(g);
 	}
 
-	iprintf("\nDone.\nPress START to exit");
+	printf("\nDone.\nPress START to exit");
 	done=1;
 	
 	return fail;
@@ -184,8 +149,8 @@ int restoreNAND(nocash_footer_t *footer){
 			break;
 		} else if(held & KEY_B) {
 			consoleClear();
-			iprintf("Press Y to begin NAND restore\n");
-			iprintf("Press A to begin NAND dump\nPress START to exit\n\n");
+			printf("Press Y to begin NAND restore\n");
+			printf("Press A to begin NAND dump\nPress START to exit\n\n");
 			return -1;
 		}
 	}
@@ -198,7 +163,7 @@ int restoreNAND(nocash_footer_t *footer){
 	bool batteryMsgShown=false;
 	while(getBatteryLevel() < 0x4){
 		if(!batteryMsgShown) {
-			iprintf("Battery low: plug in to proceed\r"); //user can charge to 2 bars or more OR just plug in the charger. charging state adds +0x80 to battery level. low 4 bits are the battery charge level.
+			printf("Battery low: plug in to proceed\r"); //user can charge to 2 bars or more OR just plug in the charger. charging state adds +0x80 to battery level. low 4 bits are the battery charge level.
 			batteryMsgShown=true;
 		}
 	}
@@ -220,37 +185,37 @@ int restoreNAND(nocash_footer_t *footer){
 
 	fseek(f, 0, SEEK_SET);
 
-	iprintf("Restoring...\n");
-	iprintf("Do not turn off the power\n");
-	iprintf("or remove the SD card.\n");
-	iprintf("\x1b[16;0H");
-	iprintf("Progress: 0%%\nSectors written: 0\n");
+	printf("Restoring...\n");
+	printf("Do not turn off the power\n");
+	printf("or remove the SD card.\n");
+	printf("\x1b[16;0H");
+	printf("Progress: 0%%\nSectors written: 0\n");
 
 	int i2=0;
 	for(int i=0;i<rwTotal;i+=0x200){           //read nand dump from sd, compare sectors, and write to nand
 		if(nand_ReadSectors(i2, 1, workbuffer) == false){
-			iprintf("Nand read error\nOffset: %08X\nAborting...", (int)i);
+			printf("Nand read error\nOffset: %08X\nAborting...", (int)i);
 			fclose(f);
 			fail=1;
 			break;
 		}
 		if(fread(workbuffer+0x200, 1, 0x200, f) < 0x200){
-			iprintf("Sdmc read error\nOffset: %08X\nAborting...", (int)i);
+			printf("Sdmc read error\nOffset: %08X\nAborting...", (int)i);
 			fclose(f);
 			fail=1;
 			break;
 		}
 		if(memcmp(workbuffer, workbuffer+0x200, 0x200) != 0){
 			if(nand_WriteSectors(i2, 1, workbuffer+0x200) == false){
-				iprintf("Nand write error\nOffset: %08X\nAborting...", (int)i);
+				printf("Nand write error\nOffset: %08X\nAborting...", (int)i);
 				fclose(f);
 				fail=1;
 				break;
 			}
 			sectorsWritten++;
 		}
-		iprintf("\x1b[16;0H");
-		iprintf("Progress: %lu%%\nSectors written: %i\n", (i+0x200)/(rwTotal/100), sectorsWritten);
+		printf("\x1b[16;0H");
+		printf("Progress: %lu%%\nSectors written: %i\n", (long unsigned)((i+0x200)/(rwTotal/100)), sectorsWritten);
 		i2++;
 	}
 
@@ -259,7 +224,7 @@ int restoreNAND(nocash_footer_t *footer){
 		fclose(f);
 	}
 
-	iprintf("\nDone.\nPress START to exit");
+	printf("\nDone.\nPress START to exit");
 	done=1;
 
 	return fail;
@@ -269,8 +234,7 @@ int verifyNocashFooter(nocash_footer_t *footer){
 	u8 out[0x200]={0};
 	u8 sha1[20]={0};
 	u32 key_x[4]={0};
-	u32 key_y[4] = {0x0AB9DC76,0xBD4DC4D3,0x202DDD1D,0xE1A00005}; //key3_y NAND constant
-	u8 key[16]={0}; 
+	u32 key[4]={0};
 	u8 iv[16]={0};
 	u32 cpuid[2]={0};
 	
@@ -286,9 +250,10 @@ int verifyNocashFooter(nocash_footer_t *footer){
 	key_x[2]=cpuid[1] ^ 0xE65B601D;
 	key_x[3]=cpuid[1];
 	
-	F_XY((u32*)key, (u32*)key_x, (u32*)key_y);
+	F_XY((uint8_t*)key, (uint8_t*)key_x, DSi_NAND_KEY_Y);
 
-	dsi_init_ctr(&ctx, key, (u8*)iv);
+	dsi_set_key(&ctx, (u8*)key);
+	dsi_set_ctr(&ctx, iv);
 	dsi_crypt_ctr(&ctx, workbuffer, out, 0x200);
 	
 	if(out[510]==0x55 && out[511]==0xAA) return 1;
@@ -301,49 +266,48 @@ int main(void) {
 	dsiOnly();
 
 	consoleDemoInit();
-	iprintf("SafeNANDManager v1.1.1 by\n");
-	iprintf("Rocket Robz (dumpTool by zoogie)\n");
+	printf("SafeNANDManager v1.1.1 by\n");
+	printf("Rocket Robz (dumpTool by zoogie)\n");
 
 	workbuffer=(u8*)malloc(CHUNKSIZE);
 	if(!workbuffer) death("Could not allocate workbuffer");  
 	nocash_footer_t nocash_footer;
-	u8 CID[16];
-	u8 consoleID[8];
-	getCID(CID);
-	getConsoleID(consoleID); //request bruteforce with write only arm7 aes registers to get consoleID. not as easy as CID!
+	fifoWaitDatamsg(FIFO_USER_02);
+	fifoGetDatamsg(FIFO_USER_02, sizeof(consoleIdAndCid), (u8*)&consoleIdAndCid);
 	char dirname[128]={0};
 
 	memset(nocash_footer.footerID, 0, sizeof(nocash_footer_t));
 	memcpy(nocash_footer.footerID, "DSi eMMC CID/CPU", 16);
-	memcpy(nocash_footer.nand_cid, CID, 16);
-	memcpy(nocash_footer.consoleid, consoleID, 8);
+	memcpy(nocash_footer.nand_cid, consoleIdAndCid.CID, 16);
+	memcpy(nocash_footer.consoleid, consoleIdAndCid.consoleID, 8);
 
 	if(!fatInitDefault() || !nand_Startup()) death("MMC init problem - dying...");
 	wait(1); //was having a race condition issue with nand_startup and nand_readsectors, so this might help
 
 	if(getMBremaining() < 250) death("SD space remaining < 250MBs");
+	//printf("sectors: %d\n", nand_GetSize());
 	if(nand_GetSize()*0x200 > 600*0x100000) death("This isn't a DSi!"); //I'll give you a kidney if there's unmodified DSi out there with a 600MB NAND.
 
-	snprintf(dirname, 32, "DT%016llX", *(u64*)CID); //that 'certain other tool' uses MAC for console-unique ID, while this one uses part of the nand CID. either is fine but I don't want to overwrite the other app's dump.
+	snprintf(dirname, 32, "DT%016llX", *(u64*)consoleIdAndCid.CID); //that 'certain other tool' uses MAC for console-unique ID, while this one uses part of the nand CID. either is fine but I don't want to overwrite the other app's dump.
 	mkdir(dirname, 0777);
 	chdir(dirname);
 
 	bool nandFound = (access("nand.bin", F_OK) == 0);
 
-	iprintf("Verifying nocash_footer: ");
+	printf("Verifying nocash_footer: ");
 	bool isNocashFooterGood = verifyNocashFooter(&nocash_footer);
-	iprintf("%s\n", isNocashFooterGood ? "\033[32mGOOD\033[39m":"\033[31mBAD\033[39m\nThis dump can't be decrypted\nwith this footer!\n\033[33mThis can occur if this tool is\nran through HiyaCFW (SDNAND),\nwhich isn't supported.\nPlease run it on SysNAND instead(DSiWare exploit or Unlaunch)."); //The color value not being reset in the "BAD" string is intended. "instead(DSiWare" because it reached the end of the line 
-	iprintf("\nConsoleID:\n");
-	for (int i = 7; i > -1; i--) iprintf("%02X", consoleID[i]);
-	iprintf("\n\nCID: \n");
-	for (int i = 0; i < 16; i++) iprintf("%02X", CID[i]);
-	if (!isNocashFooterGood) iprintf("\033[31m^ At least one of these is wrong"); //the CID value fills a whole line, no \n is needed at the beginning
-	iprintf("\n\n\033[39m");
+	printf("%s\n", isNocashFooterGood ? "\033[32mGOOD\033[39m":"\033[31mBAD\033[39m\nThis dump can't be decrypted\nwith this footer!\n\033[33mThis can occur if this tool is\nran through HiyaCFW (SDNAND),\nwhich isn't supported.\nPlease run it on SysNAND instead(DSiWare exploit or Unlaunch)."); //The color value not being reset in the "BAD" string is intended. "instead(DSiWare" because it reached the end of the line
+	printf("\nConsoleID:\n");
+	for (int i = 7; i > -1; i--) printf("%02X", consoleIdAndCid.consoleID[i]);
+	printf("\n\nCID: \n");
+	for (int i = 0; i < 16; i++) printf("%02X", consoleIdAndCid.CID[i]);
+	if (!isNocashFooterGood) printf("\033[31m^ At least one of these is wrong"); //the CID value fills a whole line, no \n is needed at the beginning
+	printf("\n\n\033[39m");
 	
 	if (nandFound) {
-		iprintf("Press Y to begin NAND restore\n");
+		printf("Press Y to begin NAND restore\n");
 	}
-	iprintf("Press A to begin NAND dump\nPress START to exit\n\n");
+	printf("Press A to begin NAND dump\nPress START to exit\n\n");
 
 	while(1) {
 
