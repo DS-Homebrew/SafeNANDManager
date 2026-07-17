@@ -22,7 +22,7 @@ typedef struct nocash_footer {
 	u8 pad[0x18];
 } nocash_footer_t;
 
-void wait(int ticks){
+static void wait(int ticks){
 	while(ticks--)swiWaitForVBlank();
 }
 
